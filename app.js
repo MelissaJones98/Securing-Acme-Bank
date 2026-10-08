@@ -33,8 +33,15 @@ app.use(
     secret: "secret",
     resave: true,
     saveUninitialized: true,
+    rolling: true, // Reset the expiry on every request, so maxAge works as an idle timeout instead of a fixed time from login
     cookie: {
-      // TODO(human): configure the session cookie's security flags
+       httpOnly: true, // stops JavaScript (document.cookie) from reading the cookie so an XSS payload can't steal the session
+       secure: process.env.NODE_ENV === "production",
+       // only send cookie over HTTPS, so it can't be secretly read on the network
+       // only true in production: on http://localhost a Secure cookie
+       // is never sent and login silently breaks
+       sameSite: "strict", // never sends the cookie on requests that start from another site - CSRF defence (stops most CSRF attacks) 
+       maxAge: 15 * 60 * 1000, // log out after 15mins of inactivity (value in milliseconds)
     },
   })
 );
