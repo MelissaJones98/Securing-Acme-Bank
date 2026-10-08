@@ -36,6 +36,8 @@
       <p>To download your history, please click the below button.</p>
 
       <form action="/download" method="post">
+        <%# CSRF FIX: hidden token proves this request came from our own page %>
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
         <button class="btn btn-primary mt-3 mb-3" name="file" value="<%=file_name%>">Download Records</button>
       </form>
     </div>

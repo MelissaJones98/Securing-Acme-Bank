@@ -56,6 +56,8 @@
         form="usrform"
       ></textarea>
       <form action="/public_forum" id="usrform" method="POST">
+        <%# CSRF FIX: hidden token proves this post came from our own page %>
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
         <input class="btn btn-primary mt-3 mb-3" type="submit" />
       </form>
     </div>

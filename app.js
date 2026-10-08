@@ -6,6 +6,7 @@ const path = require("path");
 const fs = require("fs");
 const helmet = require("helmet");
 const { body, query, validationResult } = require("express-validator");
+const csurf = require("csurf");
 
 const db = new sqlite3.Database("./bank_sample.db");
 
@@ -50,6 +51,21 @@ app.use(
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+
+// CSRF FIX: every form that changes data must send back a secret token.
+// Session mode: the token's secret lives in the session, so no extra cookie is needed.
+// Must come after session() and the body parsers, because it reads the session
+// and the _csrf field from the submitted form.
+const csrfProtection = csurf();
+const csrf = [
+  csrfProtection,
+  // Make the token available to every view as csrfToken, so each render() call
+  // doesn't have to pass it in by hand
+  (request, response, next) => {
+    response.locals.csrfToken = request.csrfToken();
+    next();
+  },
+];
 
 // VALIDATION: rules for each form's input (express-validator)
 const loginValidation = [
@@ -137,7 +153,7 @@ app.get("/home", function (request, response) {
 });
 
 //CSRF CODE SECURED. SEE HEADERS SET ABOVE
-app.get("/transfer", function (request, response) {
+app.get("/transfer", csrf, function (request, response) {
   if (request.session.loggedin) {
     var sent = "";
     response.render("transfer", { sent });
@@ -147,7 +163,7 @@ app.get("/transfer", function (request, response) {
 });
 
 //CSRF CODE
-app.post("/transfer", transferValidation, function (request, response) {
+app.post("/transfer", csrf, transferValidation, function (request, response) {
   if (request.session.loggedin) {
     const errors = validationResult(request);
     if (!errors.isEmpty()) {
@@ -193,7 +209,7 @@ app.post("/transfer", transferValidation, function (request, response) {
 });
 
 //PATH TRAVERSAL CODE
-app.get("/download", function (request, response) {
+app.get("/download", csrf, function (request, response) {
   if (request.session.loggedin) {
     file_name = request.session.file_history;
     response.render("download", { file_name });
@@ -203,7 +219,7 @@ app.get("/download", function (request, response) {
   response.end();
 });
 
-app.post("/download", function (request, response) {
+app.post("/download", csrf, function (request, response) {
   if (request.session.loggedin) {
     var file_name = request.body.file;
 
@@ -227,7 +243,7 @@ app.post("/download", function (request, response) {
 });
 
 //XSS CODE
-app.get("/public_forum", function (request, response) {
+app.get("/public_forum", csrf, function (request, response) {
   if (request.session.loggedin) {
     db.all(`SELECT username,message FROM public_forum`, (err, rows) => {
       console.log(rows);
@@ -240,7 +256,7 @@ app.get("/public_forum", function (request, response) {
   //response.end();
 });
 
-app.post("/public_forum", forumValidation, function (request, response) {
+app.post("/public_forum", csrf, forumValidation, function (request, response) {
   if (request.session.loggedin) {
     var comment = request.body.comment;
     var username = request.session.username;
@@ -311,6 +327,15 @@ app.get("/public_ledger", ledgerValidation, function (request, response) {
     response.redirect("/");
   }
   //response.end();
+});
+
+// CSRF FIX: a missing or wrong token makes csurf throw EBADCSRFTOKEN.
+// Error handlers (4 arguments) must be registered AFTER the routes to catch their errors.
+app.use((error, request, response, next) => {
+  if (error.code === "EBADCSRFTOKEN") {
+    return response.status(403).send("Invalid or missing CSRF token. Request blocked.");
+  }
+  next(error);
 });
 
 app.listen(PORT, () => {
