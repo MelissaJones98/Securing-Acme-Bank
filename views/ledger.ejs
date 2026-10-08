@@ -46,12 +46,17 @@
         </thead>
 
         <tbody>
+          <%# XSS FIX: every column uses the escaped output tag (percent-equals), which
+              HTML-encodes the value so data from the database is shown as text and
+              never runs as code. to_account and amount used the raw output tag
+              (percent-dash) before, which would run any HTML or script tag stored in
+              those columns, e.g. one inserted via the old SQL injection %>
           <% for (var i = 0; i < rows.length ; i++) { %>
           <tr>
             <th scope="row"><%= i %></th>
             <td><%= rows[i]['from_account'] %></td>
-            <td><%- rows[i]['to_account'] %></td>
-            <td><%- rows[i]['amount'] %></td>
+            <td><%= rows[i]['to_account'] %></td>
+            <td><%= rows[i]['amount'] %></td>
           </tr>
           <% } %>
         </tbody>

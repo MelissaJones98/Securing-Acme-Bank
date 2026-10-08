@@ -73,14 +73,14 @@ const transferValidation = [
 ];
 
 const forumValidation = [
-  // escape() turns < > & ' " into HTML entities so stored comments can't run as HTML
+  // Stored exactly as typed (no escape()): forum.ejs HTML-encodes it on output,
+  // and the INSERT uses a parameter so quotes can't break the SQL
   body("comment")
     .trim()
     .notEmpty()
     .withMessage("Comment cannot be empty")
     .isLength({ max: 500 })
     .withMessage("Comment must be 500 characters or fewer")
-    .escape(),
 ];
 
 const ledgerValidation = [
