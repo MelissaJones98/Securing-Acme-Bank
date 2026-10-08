@@ -92,13 +92,16 @@ app.get("/", function (request, response) {
   response.sendFile(path.join(__dirname + "/html/login.html"));
 });
 
-//LOGIN SQL
+//LOGIN SQL - SQL INJECTION FIX
 app.post("/auth", loginValidation, function (request, response) {
   var username = request.body.username;
   var password = request.body.password;
   if (validationResult(request).isEmpty()) {
+    // Prepared statement: each ? is filled from the array as plain data, never as SQL,
+    // so a username like admin'-- can't comment out the password check
     db.get(
-      `SELECT * FROM users WHERE username = '${request.body.username}' AND password = '${request.body.password}'`,
+      `SELECT * FROM users WHERE username = ? AND password = ?`,
+      [username, password],
       function (error, results) {
         console.log(error);
         console.log(results);
@@ -159,15 +162,18 @@ app.post("/transfer", transferValidation, function (request, response) {
     var account_from = request.session.account_no;
     if (account_to && amount) {
       if (balance > amount) {
+        // UPDATE queries below converted into prepared statements
         db.get(
-          `UPDATE users SET balance = balance + ${amount} WHERE account_no = ${account_to}`,
+          `UPDATE users SET balance = balance + ? WHERE account_no = ?`,
+          [amount, account_to],
           function (error, results) {
             console.log(error);
             console.log(results);
           }
         );
         db.get(
-          `UPDATE users SET balance = balance - ${amount} WHERE account_no = ${account_from}`,
+          `UPDATE users SET balance = balance - ? WHERE account_no = ?`,
+          [amount, account_from],
           function (error, results) {
             var sent = "Money Transfered";
             response.render("transfer", { sent });
@@ -239,17 +245,20 @@ app.post("/public_forum", forumValidation, function (request, response) {
     var comment = request.body.comment;
     var username = request.session.username;
     if (validationResult(request).isEmpty()) {
-      db.all(
-        `INSERT INTO public_forum (username,message) VALUES ('${username}','${comment}')`,
-        (err, rows) => {
+      // SQL INJECTION FIX: comment is passed as a parameter, so quotes in it are just text
+      db.run(
+        `INSERT INTO public_forum (username,message) VALUES (?,?)`,
+        [username, comment],
+        (err) => {
           console.log(err);
+          // Re-read the forum only after the INSERT has finished, so the new comment shows
+          db.all(`SELECT username,message FROM public_forum`, (err, rows) => {
+            console.log(rows);
+            console.log(err);
+            response.render("forum", { rows });
+          });
         }
       );
-      db.all(`SELECT username,message FROM public_forum`, (err, rows) => {
-        console.log(rows);
-        console.log(err);
-        response.render("forum", { rows });
-      });
     } else {
       db.all(`SELECT username,message FROM public_forum`, (err, rows) => {
         console.log(rows);
@@ -265,7 +274,7 @@ app.post("/public_forum", forumValidation, function (request, response) {
   //response.end();
 });
 
-//SQL UNION INJECTION
+//SQL UNION INJECTION - FIXED
 app.get("/public_ledger", ledgerValidation, function (request, response) {
   if (request.session.loggedin) {
     if (!validationResult(request).isEmpty()) {
@@ -274,8 +283,11 @@ app.get("/public_ledger", ledgerValidation, function (request, response) {
     }
     var id = request.query.id;
     if (id) {
+      // Prepared statement + only the columns the page shows (not SELECT *),
+      // so a UNION attack can't pull extra data like usernames and passwords
       db.all(
-        `SELECT * FROM public_ledger WHERE from_account = '${id}'`,
+        `SELECT from_account,to_account,amount FROM public_ledger WHERE from_account = ?`,
+        [id],
         (err, rows) => {
           console.log("PROCESSING INPU");
           console.log(err);
@@ -287,7 +299,7 @@ app.get("/public_ledger", ledgerValidation, function (request, response) {
         }
       );
     } else {
-      db.all(`SELECT * FROM public_ledger`, (err, rows) => {
+      db.all(`SELECT from_account,to_account,amount FROM public_ledger`, (err, rows) => {
         if (rows) {
           response.render("ledger", { rows });
         } else {
