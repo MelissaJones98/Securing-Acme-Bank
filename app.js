@@ -1,3 +1,4 @@
+process.loadEnvFile(); // loads variable from .env into process.env
 const sqlite3 = require("sqlite3");
 const express = require("express");
 const session = require("express-session");
@@ -30,7 +31,7 @@ app.use(express.static(path.join(__dirname, "public")));
 
 app.use(
   session({
-    secret: "secret",
+    secret: process.env.SESSION_SECRET, // kept in .env (git-ignored) so it's never committed
     resave: true,
     saveUninitialized: true,
     rolling: true, // Reset the expiry on every request, so maxAge works as an idle timeout instead of a fixed time from login
