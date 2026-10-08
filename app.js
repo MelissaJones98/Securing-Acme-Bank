@@ -3,12 +3,29 @@ const express = require("express");
 const session = require("express-session");
 const path = require("path");
 const fs = require("fs");
+const helmet = require("helmet");
 
 const db = new sqlite3.Database("./bank_sample.db");
 
 const app = express();
 const PORT = 3000;
 app.set("view engine", "ejs");
+
+// XSS FIX: security headers + Content Security Policy
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        "script-src": ["'self'", "https://cdn.jsdelivr.net"],
+        "style-src": ["'self'", "https://cdn.jsdelivr.net", "'unsafe-inline'"],
+        // We serve over plain http on localhost during development
+        "upgrade-insecure-requests": null,
+      },
+    },
+  })
+);
+
 app.use(express.static(path.join(__dirname, "public")));
 
 app.use(
@@ -16,6 +33,9 @@ app.use(
     secret: "secret",
     resave: true,
     saveUninitialized: true,
+    cookie: {
+      // TODO(human): configure the session cookie's security flags
+    },
   })
 );
 
