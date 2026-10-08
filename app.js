@@ -5,6 +5,7 @@ const session = require("express-session");
 const path = require("path");
 const fs = require("fs");
 const helmet = require("helmet");
+const { body, query, validationResult } = require("express-validator");
 
 const db = new sqlite3.Database("./bank_sample.db");
 
@@ -50,15 +51,52 @@ app.use(
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
+// VALIDATION: rules for each form's input (express-validator)
+const loginValidation = [
+  body("username").trim().notEmpty().isLength({ max: 50 }),
+  // Not trimmed or escaped: that would change the password the user typed
+  body("password").notEmpty().isLength({ max: 100 }),
+];
+
+const transferValidation = [
+  body("account_to")                                        // 1. look at the account_to field
+    .trim()                                                 // 2. remove spaces: " 123 " -> "123"
+    .isInt({ min: 1 })                                      // 3. must be a whole number of 1 or more
+    .withMessage("Account number must be a valid number")   // 3a. error text if step 3 fails
+    .toInt(),                                               // 4. convert the text "123" into the number 123
+
+  body("amount")                                            // 1. look at the amount field
+    .trim()                                                 // 2. remove spaces: " 123 " -> "123"
+    .isInt({ min: 1, max: 10000 })                          // 3. must be a whole number between 1 and 10,000
+    .withMessage("Amount must be between £1 and £10,000")   // 3a. error text if step 3 fails
+    .toInt(),                                               // 4. convert the text "123" into the number 123  
+];
+
+const forumValidation = [
+  // escape() turns < > & ' " into HTML entities so stored comments can't run as HTML
+  body("comment")
+    .trim()
+    .notEmpty()
+    .withMessage("Comment cannot be empty")
+    .isLength({ max: 500 })
+    .withMessage("Comment must be 500 characters or fewer")
+    .escape(),
+];
+
+const ledgerValidation = [
+  // id is optional (no id = show all), but if given it must be a whole account number
+  query("id").optional({ checkFalsy: true }).isInt({ min: 1 }).toInt(),
+];
+
 app.get("/", function (request, response) {
   response.sendFile(path.join(__dirname + "/html/login.html"));
 });
 
 //LOGIN SQL
-app.post("/auth", function (request, response) {
+app.post("/auth", loginValidation, function (request, response) {
   var username = request.body.username;
   var password = request.body.password;
-  if (username && password) {
+  if (validationResult(request).isEmpty()) {
     db.get(
       `SELECT * FROM users WHERE username = '${request.body.username}' AND password = '${request.body.password}'`,
       function (error, results) {
@@ -106,12 +144,18 @@ app.get("/transfer", function (request, response) {
 });
 
 //CSRF CODE
-app.post("/transfer", function (request, response) {
+app.post("/transfer", transferValidation, function (request, response) {
   if (request.session.loggedin) {
+    const errors = validationResult(request);
+    if (!errors.isEmpty()) {
+      // Show the first rule that failed, e.g. "Amount must be a positive whole number"
+      return response.render("transfer", { sent: errors.array()[0].msg });
+    }
     console.log("Transfer in progress");
     var balance = request.session.balance;
-    var account_to = parseInt(request.body.account_to);
-    var amount = parseInt(request.body.amount);
+    // Already converted to numbers by the validation chain
+    var account_to = request.body.account_to;
+    var amount = request.body.amount;
     var account_from = request.session.account_no;
     if (account_to && amount) {
       if (balance > amount) {
@@ -190,11 +234,11 @@ app.get("/public_forum", function (request, response) {
   //response.end();
 });
 
-app.post("/public_forum", function (request, response) {
+app.post("/public_forum", forumValidation, function (request, response) {
   if (request.session.loggedin) {
     var comment = request.body.comment;
     var username = request.session.username;
-    if (comment) {
+    if (validationResult(request).isEmpty()) {
       db.all(
         `INSERT INTO public_forum (username,message) VALUES ('${username}','${comment}')`,
         (err, rows) => {
@@ -222,8 +266,12 @@ app.post("/public_forum", function (request, response) {
 });
 
 //SQL UNION INJECTION
-app.get("/public_ledger", function (request, response) {
+app.get("/public_ledger", ledgerValidation, function (request, response) {
   if (request.session.loggedin) {
+    if (!validationResult(request).isEmpty()) {
+      // Invalid id (e.g. "1' UNION SELECT ..."): show an empty result instead of querying
+      return response.render("ledger", { rows: [] });
+    }
     var id = request.query.id;
     if (id) {
       db.all(
